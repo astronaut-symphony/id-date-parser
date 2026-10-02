@@ -2,7 +2,7 @@
 
 Parser & formatter tanggal Bahasa Indonesia, natural language, tanpa dependency.
 
-**[Coba demo-nya](https://astronaut-symphony.github.io/id-date-parser/docs/)**
+**<a href="https://astronaut-symphony.github.io/id-date-parser/" target="_blank" rel="noopener noreferrer">Coba demo-nya</a>**
 
 ## Install
 
