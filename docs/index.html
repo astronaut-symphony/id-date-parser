@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>id-date-parser — demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#EAF1F6; --bg2:#E1EBF2; --ink:#16314F; --ink-dim:#5B7998;
+  --line:rgba(22,49,79,.14); --surface:#FFFFFF; --surface-2:#F2F7FB;
+  --accent:#C2770E; --accent-2:#2F8FB0; --ok:#2E7D4F; --err:#B23A3A;
+  --sans:'IBM Plex Sans',system-ui,-apple-system,Segoe UI,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="dark"]{
+  --bg:#0E2A47; --bg2:#0B2440; --ink:#E8F1FA; --ink-dim:#93B2D1;
+  --line:rgba(255,255,255,.09); --surface:#143A5E; --surface-2:#11324F;
+  --accent:#F2B134; --accent-2:#5BC8F2; --ok:#7FD858; --err:#FF8686;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  background:var(--bg) center/28px 28px
+    repeating-linear-gradient(0deg,var(--line) 0 1px,transparent 1px 28px),
+    repeating-linear-gradient(90deg,var(--line) 0 1px,transparent 1px 28px);
+  color:var(--ink); font-family:var(--sans); line-height:1.5;
+  min-height:100%;
+}
+.wrap{max-width:760px;margin:0 auto;padding:48px 20px 64px}
+header{margin-bottom:34px}
+.badge{
+  display:inline-block;font-family:var(--mono);font-size:12px;letter-spacing:.02em;
+  color:var(--accent-2);border:1px solid var(--line);background:var(--surface);
+  padding:3px 9px;border-radius:3px;margin-bottom:14px;
+}
+h1{font-size:30px;font-weight:600;letter-spacing:-.01em;margin-bottom:8px}
+header p{color:var(--ink-dim);font-size:15px;max-width:52ch}
+
+.panel{
+  background:var(--surface);border:1px solid var(--line);border-radius:6px;
+  overflow:hidden; margin-bottom:22px;
+}
+.panel-head{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:12px 18px;border-bottom:1px solid var(--line);background:var(--surface-2);
+}
+.panel-head span{font-family:var(--mono);font-size:12px;color:var(--ink-dim)}
+.ref{display:flex;align-items:center;gap:7px}
+.ref-input{
+  font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--surface);
+  border:1px solid var(--line);border-radius:3px;padding:4px 7px;max-width:150px;
+}
+.ref-input:hover{border-color:var(--accent-2)}
+.ref-input:focus-visible{outline:2px solid var(--accent-2);outline-offset:1px}
+
+.entry{
+  position:relative;display:flex;align-items:center;gap:10px;
+  padding:0 14px;border-bottom:1px solid var(--line);transition:background .15s;
+}
+.entry::after{
+  content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;
+  background:var(--accent-2);opacity:0;transition:opacity .15s;
+}
+.entry:focus-within{background:var(--surface-2)}
+.entry:focus-within::after{opacity:1}
+.entry-ico{display:flex;flex:none;color:var(--ink-dim);transition:color .15s}
+.entry:focus-within .entry-ico{color:var(--accent-2)}
+#expr{
+  flex:1;min-width:0;border:none;background:transparent;color:var(--ink);
+  font-family:var(--mono);font-size:19px;padding:18px 0;outline:none;
+  caret-color:var(--accent);
+}
+#expr::placeholder{color:var(--ink-dim)}
+.clear{
+  flex:none;width:24px;height:24px;padding:0;display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--line);border-radius:50%;background:var(--surface);
+  color:var(--ink-dim);font-size:15px;line-height:1;cursor:pointer;transition:color .12s,border-color .12s;
+}
+.clear:hover,.clear:focus-visible{color:var(--ink);border-color:var(--accent-2)}
+.clear[hidden]{display:none}
+.hint{
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px;
+  padding:11px 18px;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--ink-dim);
+}
+.hint b{color:var(--ink);font-weight:500}
+.hint-samp{
+  font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--surface-2);
+  border:1px solid var(--line);border-radius:3px;padding:3px 7px;cursor:pointer;
+  transition:color .12s,border-color .12s;
+}
+.hint-samp:hover,.hint-samp:focus-visible{color:var(--accent-2);border-color:var(--accent-2)}
+
+.readout{
+  border-top:1px solid var(--line); display:grid;
+  grid-template-columns:1fr 1fr; 
+}
+.field{padding:16px 18px;border-right:1px solid var(--line)}
+.field:nth-child(2n){border-right:none}
+.field:nth-child(n+3){border-top:1px solid var(--line)}
+.field label{display:block;font-size:12px;color:var(--ink-dim);margin-bottom:4px}
+.field .val{font-family:var(--mono);font-size:16px;word-break:break-word}
+.val.ok{color:var(--ok)}
+.val.err{color:var(--err)}
+
+.groups{display:flex;flex-direction:column;gap:16px;margin-bottom:28px}
+.group h2{font-size:13px;color:var(--ink-dim);font-weight:500;margin-bottom:8px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{
+  font-family:var(--mono);font-size:13px;color:var(--ink);
+  background:var(--surface);border:1px solid var(--line);border-radius:4px;
+  padding:6px 10px;cursor:pointer;transition:border-color .12s,color .12s;
+}
+.chip:hover,.chip:focus-visible{border-color:var(--accent-2);color:var(--accent-2)}
+.chip:active{transform:translateY(1px)}
+
+footer{color:var(--ink-dim);font-size:13px;padding-top:10px;border-top:1px solid var(--line)}
+footer strong{color:var(--ink);font-family:var(--mono);font-weight:500}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="badge">id-date-parser · demo</span>
+    <h1>Parser tanggal Bahasa Indonesia</h1>
+    <p>Ketik frasa tanggal natural — "tanggal 12 bulan depan", "senin lalu", "besok" — dan lihat hasil parse-nya langsung. Semua dijalankan native di browser kamu, tanpa server.</p>
+  </header>
+
+  <div class="panel">
+    <div class="panel-head">
+      <span>ekspresi</span>
+      <label class="ref">
+        <span>referensi "hari ini"</span>
+        <input type="date" id="refDate" class="ref-input">
+      </label>
+    </div>
+
+    <div class="entry">
+      <span class="entry-ico" aria-hidden="true">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18.5 9.5a2.83 2.83 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>
+      </span>
+      <input id="expr" type="text" autocomplete="off" spellcheck="false" placeholder="Ketik di sini, mis. tanggal 12 bulan depan" aria-label="Ketik frasa tanggal" aria-describedby="entryHint">
+      <button type="button" class="clear" id="clearExpr" aria-label="Hapus ekspresi" hidden>&times;</button>
+    </div>
+
+    <p class="hint" id="entryHint">
+      <b>Belum coba? Klik:</b>
+      <button type="button" class="hint-samp">besok</button>
+      <button type="button" class="hint-samp">senin lalu</button>
+      <button type="button" class="hint-samp">tanggal 12 bulan depan</button>
+      <button type="button" class="hint-samp">25/09/2026</button>
+    </p>
+
+    <div class="readout">
+      <div class="field"><label>Hasil</label><div class="val" id="outHasil">—</div></div>
+      <div class="field"><label>Format ISO</label><div class="val" id="outIso">—</div></div>
+      <div class="field"><label>Rule yang cocok</label><div class="val" id="outRule">—</div></div>
+      <div class="field"><label>Status</label><div class="val" id="outStatus" role="status" aria-live="polite">—</div></div>
+    </div>
+  </div>
+
+  <div class="groups" id="chipGroups"></div>
+
+  <footer>Dijalankan dari <strong>id-date-parser</strong> — demo statis, logika parsing sama dengan package aslinya.</footer>
+</div>
+
+<script>
+// ---- parser (porting dari id-date-parser/index.js) ----
+const BULAN={januari:0,jan:0,februari:1,feb:1,pebruari:1,maret:2,mar:2,april:3,apr:3,mei:4,juni:5,jun:5,juli:6,jul:6,agustus:7,agu:7,agt:7,aug:7,september:8,sep:8,sept:8,oktober:9,okt:9,oct:9,november:10,nov:10,desember:11,des:11,dec:11};
+const HARI_INDEX={minggu:0,ahad:0,senin:1,selasa:2,rabu:3,kamis:4,jumat:5,"jum'at":5,sabtu:6};
+const NAMA_BULAN=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+const NAMA_HARI=['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+function tengahMalam(d){const r=new Date(d);r.setHours(0,0,0,0);return r}
+function clampDate(th,mi,day){const y=th+Math.floor(mi/12),m=((mi%12)+12)%12,last=new Date(y,m+1,0).getDate();const d=new Date(y,m,Math.max(1,Math.min(day,last)));d.setHours(0,0,0,0);return d}
+function strictDate(th,mi,day){const d=new Date(th,mi,day);if(d.getFullYear()!==th||d.getMonth()!==mi||d.getDate()!==day)return null;d.setHours(0,0,0,0);return d}
+function addDays(b,n){const d=new Date(b);d.setDate(d.getDate()+n);return d}
+function addMonthsC(b,n){return clampDate(b.getFullYear(),b.getMonth()+n,b.getDate())}
+function addYearsC(b,n){return clampDate(b.getFullYear()+n,b.getMonth(),b.getDate())}
+function tahunMendatang(day,mi,today){let d=strictDate(today.getFullYear(),mi,day); if(!d)return null; if(d<today)d=strictDate(today.getFullYear()+1,mi,day); return d}
+function normalize(raw){
+  let s=raw.toLowerCase().trim().replace(/\s+/g,' ').replace(/,/g,' ').replace(/\s+/g,' ').trim();
+  s=s.replace(/^(pada|di|sekitar)\s+/,'');
+  s=s.replace(/\btgl\.?(?=\s|$)/g,'tanggal').replace(/\bbln\.?(?=\s|$)/g,'bulan').replace(/\bthn\.?(?=\s|$)/g,'tahun').replace(/\bmgg\.?(?=\s|$)/g,'minggu').replace(/\byg\b/g,'yang').replace(/\bkemaren\b/g,'kemarin');
+  const w0=s.split(' ')[0];
+  if(w0 in HARI_INDEX && s.split(' ').length>1){const sisa=s.slice(w0.length).trim();if(/^\d/.test(sisa))s=sisa}
+  return s;
+}
+const RULES=[];
+function rule(name,fn){RULES.push({name,fn})}
+const RELATIF={'hari ini':t=>t,'sekarang':t=>t,'besok':t=>addDays(t,1),'lusa':t=>addDays(t,2),'kemarin':t=>addDays(t,-1),'kemarin lusa':t=>addDays(t,-2)};
+rule('relatif-tetap',(s,c)=>RELATIF[s]?RELATIF[s](c.today):null);
+rule('n-satuan-relatif',(s,c)=>{
+  let m=s.match(/^(\d+)\s*(hari|minggu|bulan|tahun)\s+(lagi|yang lalu|lalu)$/),jml;
+  if(m){jml=parseInt(m[1],10)}else{m=s.match(/^se(hari|minggu|bulan|tahun)\s+(lagi|yang lalu|lalu)$/);if(!m)return null;jml=1;m=[m[0],'1',m[1],m[2]]}
+  const sat=m[2],arah=m[3].startsWith('lagi')?1:-1,n=jml*arah;
+  if(sat==='hari')return addDays(c.today,n); if(sat==='minggu')return addDays(c.today,n*7);
+  if(sat==='bulan')return addMonthsC(c.today,n); if(sat==='tahun')return addYearsC(c.today,n); return null;
+});
+rule('satuan-depan-lalu',(s,c)=>{
+  const m=s.match(/^(minggu|bulan|tahun)\s+(depan|lalu|kemarin)$/); if(!m)return null;
+  const n=m[2]==='depan'?1:-1;
+  if(m[1]==='minggu')return addDays(c.today,n*7); if(m[1]==='bulan')return addMonthsC(c.today,n); return addYearsC(c.today,n);
+});
+rule('nama-hari',(s,c)=>{
+  const m=s.match(/^(minggu|ahad|senin|selasa|rabu|kamis|jumat|jum'at|sabtu)(?:\s+(depan|lalu|kemarin|ini))?$/); if(!m)return null;
+  const target=HARI_INDEX[m[1]],mode=m[2]||'bare',ti=c.today.getDay();
+  if(mode==='lalu'||mode==='kemarin'){let diff=(ti-target+7)%7; if(diff===0)diff=7; return addDays(c.today,-diff)}
+  let diff=(target-ti+7)%7; if(mode==='depan'&&diff===0)diff=7; return addDays(c.today,diff);
+});
+rule('tanggal-n',(s,c)=>{
+  const m=s.match(/^tanggal\s+(\d{1,2})(?:\s+(.*))?$/); if(!m)return null;
+  const day=parseInt(m[1],10); if(day<1||day>31)return null;
+  const suf=(m[2]||'').trim(), t=c.today;
+  if(suf===''||suf==='ini'||suf==='bulan ini')return clampDate(t.getFullYear(),t.getMonth(),day);
+  if(suf==='nanti'){let k=clampDate(t.getFullYear(),t.getMonth(),day); if(k<t)k=clampDate(t.getFullYear(),t.getMonth()+1,day); return k}
+  if(suf==='bulan depan')return clampDate(t.getFullYear(),t.getMonth()+1,day);
+  if(suf==='bulan lalu'||suf==='bulan kemarin')return clampDate(t.getFullYear(),t.getMonth()-1,day);
+  if(suf==='tahun depan')return clampDate(t.getFullYear()+1,t.getMonth(),day);
+  if(suf==='tahun lalu'||suf==='tahun kemarin')return clampDate(t.getFullYear()-1,t.getMonth(),day);
+  const m2=suf.match(/^([a-z]+)\.?(?:\s+(\d{4}))?$/);
+  if(m2&&(m2[1] in BULAN)){const th=m2[2]?parseInt(m2[2],10):t.getFullYear(); return clampDate(th,BULAN[m2[1]],day)}
+  return null;
+});
+rule('angka-saja',(s,c)=>{const m=s.match(/^(\d{1,2})$/); if(!m)return null; const day=parseInt(m[1],10); if(day<1||day>31)return null; return clampDate(c.today.getFullYear(),c.today.getMonth(),day)});
+rule('awal-akhir',(s,c)=>{
+  const m=s.match(/^(awal|akhir)\s+(bulan|tahun)(?:\s+(ini|depan|lalu|kemarin))?$/); if(!m)return null;
+  const pos=m[1],sat=m[2],ak=m[3]||'ini',arah=ak==='depan'?1:(ak==='ini'?0:-1),t=c.today;
+  if(sat==='bulan'){const b=addMonthsC(t,arah);const day=pos==='awal'?1:new Date(b.getFullYear(),b.getMonth()+1,0).getDate(); return clampDate(b.getFullYear(),b.getMonth(),day)}
+  const th=t.getFullYear()+arah; return pos==='awal'?strictDate(th,0,1):strictDate(th,11,31);
+});
+rule('nama-bulan-tanpa-tahun',(s,c)=>{const m=s.match(/^(\d{1,2})\s+([a-z]+)\.?$/); if(!m||!(m[2] in BULAN))return null; return tahunMendatang(+m[1],BULAN[m[2]],c.today)});
+rule('numerik-tanpa-tahun',(s,c)=>{const m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})$/); if(!m)return null; const mi=+m[2]-1; if(mi<0||mi>11)return null; return tahunMendatang(+m[1],mi,c.today)});
+rule('iso',s=>{const m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/); return m?strictDate(+m[1],+m[2]-1,+m[3]):null});
+rule('numerik',s=>{const m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/); if(!m)return null; let th=+m[3]; if(th<100)th+=th<50?2000:1900; return strictDate(th,+m[2]-1,+m[1])});
+rule('nama-bulan-lengkap',s=>{const m=s.match(/^(\d{1,2})\s+([a-z]+)\.?\s+(\d{4})$/); if(!m||!(m[2] in BULAN))return null; return strictDate(+m[3],BULAN[m[2]],+m[1])});
+rule('bulan-tahun',s=>{const m=s.match(/^([a-z]+)\.?\s+(\d{4})$/); if(!m||!(m[1] in BULAN))return null; return strictDate(+m[2],BULAN[m[1]],1)});
+
+function parseDetail(input,today){
+  if(!input||!input.trim())return{date:null,rule:null};
+  const s=normalize(input),ctx={today};
+  for(const{name,fn}of RULES){const h=fn(s,ctx); if(h instanceof Date&&!isNaN(h))return{date:h,rule:name}}
+  return{date:null,rule:null};
+}
+function fmt(d,withDay){if(!(d instanceof Date)||isNaN(d))return''; const inti=`${d.getDate()} ${NAMA_BULAN[d.getMonth()]} ${d.getFullYear()}`; return withDay?`${NAMA_HARI[d.getDay()]}, ${inti}`:inti}
+function iso(d){const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`}
+
+// ---- UI wiring ----
+const $expr=document.getElementById('expr'), $ref=document.getElementById('refDate'),
+      $clear=document.getElementById('clearExpr');
+const $hasil=document.getElementById('outHasil'), $iso=document.getElementById('outIso'),
+      $rule=document.getElementById('outRule'), $status=document.getElementById('outStatus');
+
+function todayFromRef(){
+  if($ref.value){const[y,m,d]=$ref.value.split('-').map(Number); return tengahMalam(new Date(y,m-1,d))}
+  return tengahMalam(new Date());
+}
+function syncClear(){$clear.hidden=!$expr.value}
+function render(){
+  if(!$expr.value.trim()){
+    $hasil.textContent='—'; $hasil.className='val';
+    $iso.textContent='—'; $rule.textContent='—';
+    $status.textContent='menunggu input'; $status.className='val';
+    return;
+  }
+  const{date,rule:r}=parseDetail($expr.value,todayFromRef());
+  if(date){
+    $hasil.textContent=fmt(date,true); $hasil.className='val ok';
+    $iso.textContent=iso(date);
+    $rule.textContent=r;
+    $status.textContent='Valid'; $status.className='val ok';
+  }else{
+    $hasil.textContent='tidak terdeteksi'; $hasil.className='val err';
+    $iso.textContent='—'; $rule.textContent='—';
+    $status.textContent='Tidak valid'; $status.className='val err';
+  }
+}
+$expr.addEventListener('input',()=>{render();syncClear()});
+$ref.addEventListener('change',render);
+$clear.addEventListener('click',()=>{$expr.value='';syncClear();render();$expr.focus()});
+document.querySelectorAll('.hint-samp').forEach(b=>
+  b.addEventListener('click',()=>{$expr.value=b.textContent;syncClear();render();$expr.focus()}));
+
+(function initRef(){const t=new Date(); const p=n=>String(n).padStart(2,'0'); $ref.value=`${t.getFullYear()}-${p(t.getMonth()+1)}-${p(t.getDate())}`})();
+
+// ---- contoh chips ----
+const GROUPS=[
+  ['Relatif',['hari ini','besok','lusa','kemarin','3 hari lagi','2 minggu lalu']],
+  ['Tanggal spesifik',['tanggal 12','tgl 21','tanggal 12 nanti','tanggal 12 bulan depan','tanggal 12 bulan lalu']],
+  ['Hari',['senin','senin depan','jumat lalu','ahad']],
+  ['Rentang bulan/tahun',['bulan depan','akhir bulan','awal bulan depan','akhir tahun']],
+  ['Tanpa tahun (auto-roll)',['12 jun','23 okt','22-1','12-3']],
+  ['Format baku',['25 September 2026','25/09/2026','2026-09-25']],
+];
+const $groups=document.getElementById('chipGroups');
+for(const[label,items]of GROUPS){
+  const g=document.createElement('div'); g.className='group';
+  const h=document.createElement('h2'); h.textContent=label; g.appendChild(h);
+  const row=document.createElement('div'); row.className='chips';
+  for(const it of items){
+    const b=document.createElement('button'); b.type='button'; b.className='chip'; b.textContent=it;
+    b.addEventListener('click',()=>{$expr.value=it; render(); $expr.focus()});
+    row.appendChild(b);
+  }
+  g.appendChild(row); $groups.appendChild(g);
+}
+
+syncClear();
+render();
+</script>
+</body>
+</html>

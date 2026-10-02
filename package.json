@@ -1,0 +1,30 @@
+{
+  "name": "id-date-parser",
+  "version": "1.0.0",
+  "description": "Parser & formatter tanggal berbahasa Indonesia (natural language), tanpa dependency eksternal.",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node test.js"
+  },
+  "keywords": [
+    "indonesia",
+    "bahasa indonesia",
+    "date",
+    "tanggal",
+    "parser",
+    "nlp-lite"
+  ],
+  "license": "MIT",
+  "author": "Gilang Sandhika Putra",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/USERNAME/id-date-parser.git"
+  },
+  "engines": {
+    "node": ">=12"
+  }
+}
