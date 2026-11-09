@@ -1,14 +1,18 @@
 {
   "name": "id-date-parser",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "description": "Parser & formatter tanggal berbahasa Indonesia (natural language), tanpa dependency eksternal.",
   "main": "index.js",
+  "types": "index.d.ts",
   "files": [
     "index.js",
+    "index.d.ts",
     "README.md"
   ],
   "scripts": {
-    "test": "node test.js"
+    "test": "node test.js",
+    "build:demo": "node -e \"require('fs').copyFileSync('index.js','docs/index.js')\"",
+    "prepublishOnly": "npm test"
   },
   "keywords": [
     "indonesia",
@@ -16,15 +20,21 @@
     "date",
     "tanggal",
     "parser",
-    "nlp-lite"
+    "nlp-lite",
+    "waktu",
+    "jam"
   ],
   "license": "MIT",
   "author": "Gilang Sandhika Putra",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/USERNAME/id-date-parser.git"
+    "url": "git+https://github.com/astronaut-symphony/id-date-parser.git"
   },
   "engines": {
-    "node": ">=12"
+    "node": ">=18"
+  },
+  "homepage": "https://astronaut-symphony.github.io/id-date-parser/",
+  "bugs": {
+    "url": "https://github.com/astronaut-symphony/id-date-parser/issues"
   }
 }

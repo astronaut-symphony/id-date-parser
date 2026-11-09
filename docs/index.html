@@ -127,7 +127,7 @@ footer strong{color:var(--ink);font-family:var(--mono);font-weight:500}
   <header>
     <span class="badge">id-date-parser · demo</span>
     <h1>Parser tanggal Bahasa Indonesia</h1>
-    <p>Ketik frasa tanggal natural — "tanggal 12 bulan depan", "senin lalu", "besok" — dan lihat hasil parse-nya langsung. Semua dijalankan native di browser kamu, tanpa server.</p>
+    <p>Ketik frasa tanggal natural — "tanggal 12 bulan depan", "senin lalu", "besok jam 10 malam" — dan lihat hasil parse-nya langsung. Semua dijalankan native di browser kamu, tanpa server.</p>
   </header>
 
   <div class="panel">
@@ -159,122 +159,48 @@ footer strong{color:var(--ink);font-family:var(--mono);font-weight:500}
       <div class="field"><label>Hasil</label><div class="val" id="outHasil">—</div></div>
       <div class="field"><label>Format ISO</label><div class="val" id="outIso">—</div></div>
       <div class="field"><label>Rule yang cocok</label><div class="val" id="outRule">—</div></div>
+      <div class="field"><label>Koreksi typo</label><div class="val" id="outFix">—</div></div>
       <div class="field"><label>Status</label><div class="val" id="outStatus" role="status" aria-live="polite">—</div></div>
     </div>
   </div>
 
   <div class="groups" id="chipGroups"></div>
 
-  <footer>Dijalankan dari <strong>id-date-parser</strong> — demo statis, logika parsing sama dengan package aslinya.</footer>
+  <footer>Dijalankan dari <strong>id-date-parser</strong> — demo statis, memakai <code>index.js</code> yang sama dengan package aslinya.</footer>
 </div>
 
+<script src="index.js"></script>
 <script>
-// ---- parser (porting dari id-date-parser/index.js) ----
-const BULAN={januari:0,jan:0,februari:1,feb:1,pebruari:1,maret:2,mar:2,april:3,apr:3,mei:4,juni:5,jun:5,juli:6,jul:6,agustus:7,agu:7,agt:7,aug:7,september:8,sep:8,sept:8,oktober:9,okt:9,oct:9,november:10,nov:10,desember:11,des:11,dec:11};
-const HARI_INDEX={minggu:0,ahad:0,senin:1,selasa:2,rabu:3,kamis:4,jumat:5,"jum'at":5,sabtu:6};
-const NAMA_BULAN=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
-const NAMA_HARI=['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
-function tengahMalam(d){const r=new Date(d);r.setHours(0,0,0,0);return r}
-function clampDate(th,mi,day){const y=th+Math.floor(mi/12),m=((mi%12)+12)%12,last=new Date(y,m+1,0).getDate();const d=new Date(y,m,Math.max(1,Math.min(day,last)));d.setHours(0,0,0,0);return d}
-function strictDate(th,mi,day){const d=new Date(th,mi,day);if(d.getFullYear()!==th||d.getMonth()!==mi||d.getDate()!==day)return null;d.setHours(0,0,0,0);return d}
-function addDays(b,n){const d=new Date(b);d.setDate(d.getDate()+n);return d}
-function addMonthsC(b,n){return clampDate(b.getFullYear(),b.getMonth()+n,b.getDate())}
-function addYearsC(b,n){return clampDate(b.getFullYear()+n,b.getMonth(),b.getDate())}
-function tahunMendatang(day,mi,today){let d=strictDate(today.getFullYear(),mi,day); if(!d)return null; if(d<today)d=strictDate(today.getFullYear()+1,mi,day); return d}
-function normalize(raw){
-  let s=raw.toLowerCase().trim().replace(/\s+/g,' ').replace(/,/g,' ').replace(/\s+/g,' ').trim();
-  s=s.replace(/^(pada|di|sekitar)\s+/,'');
-  s=s.replace(/\btgl\.?(?=\s|$)/g,'tanggal').replace(/\bbln\.?(?=\s|$)/g,'bulan').replace(/\bthn\.?(?=\s|$)/g,'tahun').replace(/\bmgg\.?(?=\s|$)/g,'minggu').replace(/\byg\b/g,'yang').replace(/\bkemaren\b/g,'kemarin');
-  const w0=s.split(' ')[0];
-  if(w0 in HARI_INDEX && s.split(' ').length>1){const sisa=s.slice(w0.length).trim();if(/^\d/.test(sisa))s=sisa}
-  return s;
-}
-const RULES=[];
-function rule(name,fn){RULES.push({name,fn})}
-const RELATIF={'hari ini':t=>t,'sekarang':t=>t,'besok':t=>addDays(t,1),'lusa':t=>addDays(t,2),'kemarin':t=>addDays(t,-1),'kemarin lusa':t=>addDays(t,-2)};
-rule('relatif-tetap',(s,c)=>RELATIF[s]?RELATIF[s](c.today):null);
-rule('n-satuan-relatif',(s,c)=>{
-  let m=s.match(/^(\d+)\s*(hari|minggu|bulan|tahun)\s+(lagi|yang lalu|lalu)$/),jml;
-  if(m){jml=parseInt(m[1],10)}else{m=s.match(/^se(hari|minggu|bulan|tahun)\s+(lagi|yang lalu|lalu)$/);if(!m)return null;jml=1;m=[m[0],'1',m[1],m[2]]}
-  const sat=m[2],arah=m[3].startsWith('lagi')?1:-1,n=jml*arah;
-  if(sat==='hari')return addDays(c.today,n); if(sat==='minggu')return addDays(c.today,n*7);
-  if(sat==='bulan')return addMonthsC(c.today,n); if(sat==='tahun')return addYearsC(c.today,n); return null;
-});
-rule('satuan-depan-lalu',(s,c)=>{
-  const m=s.match(/^(minggu|bulan|tahun)\s+(depan|lalu|kemarin)$/); if(!m)return null;
-  const n=m[2]==='depan'?1:-1;
-  if(m[1]==='minggu')return addDays(c.today,n*7); if(m[1]==='bulan')return addMonthsC(c.today,n); return addYearsC(c.today,n);
-});
-rule('nama-hari',(s,c)=>{
-  const m=s.match(/^(minggu|ahad|senin|selasa|rabu|kamis|jumat|jum'at|sabtu)(?:\s+(depan|lalu|kemarin|ini))?$/); if(!m)return null;
-  const target=HARI_INDEX[m[1]],mode=m[2]||'bare',ti=c.today.getDay();
-  if(mode==='lalu'||mode==='kemarin'){let diff=(ti-target+7)%7; if(diff===0)diff=7; return addDays(c.today,-diff)}
-  let diff=(target-ti+7)%7; if(mode==='depan'&&diff===0)diff=7; return addDays(c.today,diff);
-});
-rule('tanggal-n',(s,c)=>{
-  const m=s.match(/^tanggal\s+(\d{1,2})(?:\s+(.*))?$/); if(!m)return null;
-  const day=parseInt(m[1],10); if(day<1||day>31)return null;
-  const suf=(m[2]||'').trim(), t=c.today;
-  if(suf===''||suf==='ini'||suf==='bulan ini')return clampDate(t.getFullYear(),t.getMonth(),day);
-  if(suf==='nanti'){let k=clampDate(t.getFullYear(),t.getMonth(),day); if(k<t)k=clampDate(t.getFullYear(),t.getMonth()+1,day); return k}
-  if(suf==='bulan depan')return clampDate(t.getFullYear(),t.getMonth()+1,day);
-  if(suf==='bulan lalu'||suf==='bulan kemarin')return clampDate(t.getFullYear(),t.getMonth()-1,day);
-  if(suf==='tahun depan')return clampDate(t.getFullYear()+1,t.getMonth(),day);
-  if(suf==='tahun lalu'||suf==='tahun kemarin')return clampDate(t.getFullYear()-1,t.getMonth(),day);
-  const m2=suf.match(/^([a-z]+)\.?(?:\s+(\d{4}))?$/);
-  if(m2&&(m2[1] in BULAN)){const th=m2[2]?parseInt(m2[2],10):t.getFullYear(); return clampDate(th,BULAN[m2[1]],day)}
-  return null;
-});
-rule('angka-saja',(s,c)=>{const m=s.match(/^(\d{1,2})$/); if(!m)return null; const day=parseInt(m[1],10); if(day<1||day>31)return null; return clampDate(c.today.getFullYear(),c.today.getMonth(),day)});
-rule('awal-akhir',(s,c)=>{
-  const m=s.match(/^(awal|akhir)\s+(bulan|tahun)(?:\s+(ini|depan|lalu|kemarin))?$/); if(!m)return null;
-  const pos=m[1],sat=m[2],ak=m[3]||'ini',arah=ak==='depan'?1:(ak==='ini'?0:-1),t=c.today;
-  if(sat==='bulan'){const b=addMonthsC(t,arah);const day=pos==='awal'?1:new Date(b.getFullYear(),b.getMonth()+1,0).getDate(); return clampDate(b.getFullYear(),b.getMonth(),day)}
-  const th=t.getFullYear()+arah; return pos==='awal'?strictDate(th,0,1):strictDate(th,11,31);
-});
-rule('nama-bulan-tanpa-tahun',(s,c)=>{const m=s.match(/^(\d{1,2})\s+([a-z]+)\.?$/); if(!m||!(m[2] in BULAN))return null; return tahunMendatang(+m[1],BULAN[m[2]],c.today)});
-rule('numerik-tanpa-tahun',(s,c)=>{const m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})$/); if(!m)return null; const mi=+m[2]-1; if(mi<0||mi>11)return null; return tahunMendatang(+m[1],mi,c.today)});
-rule('iso',s=>{const m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/); return m?strictDate(+m[1],+m[2]-1,+m[3]):null});
-rule('numerik',s=>{const m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/); if(!m)return null; let th=+m[3]; if(th<100)th+=th<50?2000:1900; return strictDate(th,+m[2]-1,+m[1])});
-rule('nama-bulan-lengkap',s=>{const m=s.match(/^(\d{1,2})\s+([a-z]+)\.?\s+(\d{4})$/); if(!m||!(m[2] in BULAN))return null; return strictDate(+m[3],BULAN[m[2]],+m[1])});
-rule('bulan-tahun',s=>{const m=s.match(/^([a-z]+)\.?\s+(\d{4})$/); if(!m||!(m[1] in BULAN))return null; return strictDate(+m[2],BULAN[m[1]],1)});
-
-function parseDetail(input,today){
-  if(!input||!input.trim())return{date:null,rule:null};
-  const s=normalize(input),ctx={today};
-  for(const{name,fn}of RULES){const h=fn(s,ctx); if(h instanceof Date&&!isNaN(h))return{date:h,rule:name}}
-  return{date:null,rule:null};
-}
-function fmt(d,withDay){if(!(d instanceof Date)||isNaN(d))return''; const inti=`${d.getDate()} ${NAMA_BULAN[d.getMonth()]} ${d.getFullYear()}`; return withDay?`${NAMA_HARI[d.getDay()]}, ${inti}`:inti}
-function iso(d){const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`}
-
 // ---- UI wiring ----
 const $expr=document.getElementById('expr'), $ref=document.getElementById('refDate'),
       $clear=document.getElementById('clearExpr');
 const $hasil=document.getElementById('outHasil'), $iso=document.getElementById('outIso'),
-      $rule=document.getElementById('outRule'), $status=document.getElementById('outStatus');
+      $rule=document.getElementById('outRule'), $fix=document.getElementById('outFix'), $status=document.getElementById('outStatus');
 
-function todayFromRef(){
-  if($ref.value){const[y,m,d]=$ref.value.split('-').map(Number); return tengahMalam(new Date(y,m-1,d))}
-  return tengahMalam(new Date());
+const p2=n=>String(n).padStart(2,'0');
+function iso(d,withTime){return `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`+(withTime?` ${p2(d.getHours())}:${p2(d.getMinutes())}`:'')}
+function refDate(){
+  if($ref.value){const[y,m,d]=$ref.value.split('-').map(Number); return new Date(y,m-1,d)}
+  return new Date();
 }
 function syncClear(){$clear.hidden=!$expr.value}
 function render(){
   if(!$expr.value.trim()){
     $hasil.textContent='—'; $hasil.className='val';
-    $iso.textContent='—'; $rule.textContent='—';
+    $iso.textContent='—'; $rule.textContent='—'; $fix.textContent='—';
     $status.textContent='menunggu input'; $status.className='val';
     return;
   }
-  const{date,rule:r}=parseDetail($expr.value,todayFromRef());
+  const{date,rule:r,hasTime,assumed,corrections}=IdDateParser.parseTanggalIDDetail($expr.value,{referenceDate:refDate()});
   if(date){
-    $hasil.textContent=fmt(date,true); $hasil.className='val ok';
-    $iso.textContent=iso(date);
+    $hasil.textContent=IdDateParser.formatTanggalID(date,{withDay:true,withTime:hasTime}); $hasil.className='val ok';
+    $iso.textContent=iso(date,hasTime);
     $rule.textContent=r;
-    $status.textContent='Valid'; $status.className='val ok';
+    $fix.textContent=assumed?corrections.map(c=>`${c.from} → ${c.to}`).join(', '):'—';
+    $status.textContent=assumed?'Asumsi (typo diperbaiki)':'Valid'; $status.className=assumed?'val':'val ok';
   }else{
     $hasil.textContent='tidak terdeteksi'; $hasil.className='val err';
-    $iso.textContent='—'; $rule.textContent='—';
+    $iso.textContent='—'; $rule.textContent='—'; $fix.textContent='—';
     $status.textContent='Tidak valid'; $status.className='val err';
   }
 }
@@ -288,12 +214,14 @@ document.querySelectorAll('.hint-samp').forEach(b=>
 
 // ---- contoh chips ----
 const GROUPS=[
-  ['Relatif',['hari ini','besok','lusa','kemarin','3 hari lagi','2 minggu lalu']],
+  ['Relatif',['hari ini','besok','lusa','kemarin','3 hari lagi','3 hari ke depan','2 minggu lalu','pekan depan']],
   ['Tanggal spesifik',['tanggal 12','tgl 21','tanggal 12 nanti','tanggal 12 bulan depan','tanggal 12 bulan lalu']],
-  ['Hari',['senin','senin depan','jumat lalu','ahad']],
+  ['Hari',['senin','hari senin','senin depan','jumat lalu','ahad','senin minggu depan','rabu 2 minggu lagi']],
+  ['Singkatan & typo',['hr ini','3 hr lg','minggu dpn','sel dpn','bsk jm 9 mlm','senn','bsok','mingu depan']],
+  ['Dengan jam',['besok jam 10','besok pagi','lusa 3 sore','senin depan jm 9 mlm','tanggal 12 jam setengah 3 sore','25/09/2026 14:30']],
   ['Rentang bulan/tahun',['bulan depan','akhir bulan','awal bulan depan','akhir tahun']],
   ['Tanpa tahun (auto-roll)',['12 jun','23 okt','22-1','12-3']],
-  ['Format baku',['25 September 2026','25/09/2026','2026-09-25']],
+  ['Format baku',['25 September 2026','25/09/2026','2026-09-25','natal']],
 ];
 const $groups=document.getElementById('chipGroups');
 for(const[label,items]of GROUPS){
