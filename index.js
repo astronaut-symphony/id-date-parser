@@ -9,11 +9,14 @@
  *
  * API utama:
  *   parseTanggalID(input, opts?)        -> Date | null
- *   parseTanggalIDDetail(input, opts?)  -> { date: Date|null, rule: string|null }
- *   formatTanggalID(date, opts?)        -> string
+ *   parseTanggalIDDetail(input, opts?)  -> { date: Date|null, rule: string|null, hasTime: boolean }
+ *   formatTanggalID(date, opts?)        -> string   (opts: withDay, withTime)
  *
  * opts.referenceDate (Date) bisa dipakai untuk override "hari ini" — berguna
  * untuk testing atau kalau server jalan di timezone berbeda.
+ *
+ * Kalau input menyebut waktu ("besok jam 10", "lusa 3 sore", "senin pagi"), Date hasilnya
+ * ikut membawa jam & menit dan hasTime = true. Tanpa keterangan waktu, jam = 00:00.
  *
  * Lihat README.md untuk daftar lengkap format yang didukung.
  */
@@ -120,17 +123,32 @@ function tambahTahunClamped(base, n) {
  * Contoh: hari ini 1 Oktober 2026, input "12 Maret" -> 12 Maret 2027 (bukan 2026, sudah lewat).
  */
 function tanggalTahunMendatang(day, monthIndex, today) {
-  let d = buatTanggalStrict(today.getFullYear(), monthIndex, day);
-  if (!d) return null;
-  if (d < today) {
-    d = buatTanggalStrict(today.getFullYear() + 1, monthIndex, day);
+  // sampai 8 tahun ke depan supaya "29 februari" ketemu tahun kabisat berikutnya (celah maks. 8 tahun)
+  for (let y = today.getFullYear(); y <= today.getFullYear() + 8; y++) {
+    const d = buatTanggalStrict(y, monthIndex, day);
+    if (d && d >= today) return d;
   }
-  return d;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
 // Normalisasi input
 // ---------------------------------------------------------------------------
+
+// Singkatan & ejaan gaul -> bentuk baku. Kunci huruf kecil, kata utuh (bukan potongan kata).
+const SINGKATAN = {
+  // umum
+  tgl: 'tanggal', bln: 'bulan', thn: 'tahun', mgg: 'minggu', pekan: 'minggu',
+  hr: 'hari', hri: 'hari', dpn: 'depan', dpan: 'depan', depn: 'depan', kedepan: 'ke depan',
+  lg: 'lagi', yg: 'yang', skrg: 'sekarang', skrng: 'sekarang', ntar: 'nanti',
+  bsk: 'besok', besk: 'besok', lsa: 'lusa', kmrn: 'kemarin', kmaren: 'kemarin', kemaren: 'kemarin',
+  ags: 'agustus', agst: 'agustus',
+  // nama hari
+  sen: 'senin', sel: 'selasa', rab: 'rabu', kam: 'kamis', jum: 'jumat', jmt: 'jumat', sab: 'sabtu',
+  // waktu
+  jm: 'jam', pkl: 'pukul', mlm: 'malam', mlam: 'malam', pg: 'pagi', pgi: 'pagi',
+  sng: 'siang', sre: 'sore', sr: 'sore', ptg: 'petang', sbh: 'subuh',
+};
 
 function normalize(raw) {
   let s = raw.toLowerCase().trim();
@@ -141,25 +159,90 @@ function normalize(raw) {
   // Buang kata pengantar umum: "pada tanggal 12", "di tanggal 12", "sekitar tanggal 12"
   s = s.replace(/^(pada|di|sekitar)\s+/, '');
 
-  // Samakan singkatan/ejaan umum jadi satu bentuk baku
-  // (pakai lookahead, bukan \b di akhir, supaya "tgl." tetap cocok sebelum spasi/akhir string)
-  s = s.replace(/\btgl\.?(?=\s|$)/g, 'tanggal');
-  s = s.replace(/\bbln\.?(?=\s|$)/g, 'bulan');
-  s = s.replace(/\bthn\.?(?=\s|$)/g, 'tahun');
-  s = s.replace(/\bmgg\.?(?=\s|$)/g, 'minggu');
-  s = s.replace(/\byg\b/g, 'yang');
-  s = s.replace(/\bkemaren\b/g, 'kemarin');
-  s = s.replace(/\bbesok\b/g, 'besok'); // no-op, placeholder for future synonyms
+  // Samakan singkatan/ejaan umum jadi satu bentuk baku (lihat SINGKATAN).
+  // Pakai lookahead, bukan \b di akhir, supaya "tgl." tetap cocok sebelum spasi/angka/akhir string.
+  s = s.replace(/\b([a-z]+)\.?(?=\s|\d|$)/g, (m, w) => SINGKATAN[w] || m);
+  // Zona waktu (wib/wita/wit) dibuang, jam dianggap lokal.
+  s = s.replace(/\b(?:wib|wita|wit)\b/g, '');
 
-  // Buang nama hari di depan string absolut: "senin 25 september 2026" -> "25 september 2026"
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+// Buang nama hari di depan string absolut: "senin 25 september 2026" -> "25 september 2026"
+// (dipisah dari normalize() supaya "senin 8 pagi" tidak kehilangan "senin" sebelum waktunya dilepas)
+function buangHariAbsolut(s) {
   const kataPertama = s.split(' ')[0];
   if (kataPertama in HARI_INDEX && s.split(' ').length > 1) {
     // Hanya buang kalau kata berikutnya terlihat seperti awal tanggal absolut (angka)
     const sisa = s.slice(kataPertama.length).trim();
-    if (/^\d/.test(sisa)) s = sisa;
+    // ...dan bukan durasi ("rabu 2 minggu lagi" harus tetap utuh)
+    if (/^\d/.test(sisa) && !/^\d+\s*(hari|minggu|bulan|tahun)\b/.test(sisa)) s = sisa;
   }
-
   return s;
+}
+
+// ---------------------------------------------------------------------------
+// Ekstraksi waktu: "jam 10", "pukul 14.30", "3 sore", "setengah 3", "malam", ...
+// ---------------------------------------------------------------------------
+
+// Jam default kalau cuma disebut periodenya ("besok pagi"). Ubah di sini kalau mau lain.
+const PERIODE_JAM = {
+  subuh: 4, pagi: 8, siang: 12, sore: 16, petang: 17, malam: 20,
+  'tengah malam': 0, 'tengah hari': 12,
+};
+const PN = 'subuh|pagi|siang|sore|petang|malam';
+
+/** Konversi jam gaya 12-jam + periode ke 24-jam: "3 sore" -> 15, "9 malam" -> 21, "12 malam" -> 0. */
+function jamDariPeriode(h, periode) {
+  if (!periode || h > 12) return h;
+  switch (periode) {
+    case 'siang': return h < 10 ? h + 12 : h;
+    case 'sore': case 'petang': return h < 12 ? h + 12 : h;
+    case 'malam': return h === 12 ? 0 : (h >= 5 ? h + 12 : h);
+    default: return h === 12 ? 0 : h; // pagi, subuh
+  }
+}
+
+// Dicoba berurutan. "10.30" tanpa jam/periode sengaja bukan waktu: bentrok dengan tanggal (23.10).
+const POLA_WAKTU = [
+  // "jam setengah 3 sore", "setengah 12 malam" (= setengah jam sebelum jam N)
+  { sete: true, re: new RegExp(String.raw`(?:\b(?:pada|sekitar)\s+)?(?:\b(?:jam|pukul)\s*)?\bsetengah\s+(?<h>\d{1,2})(?:\s*(?<p>${PN}))?(?![\d:.])`) },
+  // "jam 10", "pukul 10.30", "jam 8 pagi"
+  { re: new RegExp(String.raw`(?:\b(?:pada|sekitar)\s+)?\b(?:jam|pukul)\s*(?<h>\d{1,2})(?:[.:](?<m>\d{2}))?(?:\s*(?<p>${PN}))?(?![\d:.])`) },
+  // "10:30", "10:30 malam"
+  { re: new RegExp(String.raw`(?<![\d.:/-])(?<h>\d{1,2}):(?<m>\d{2})(?::\d{2})?(?:\s*(?<p>${PN}))?(?![\d:.])`) },
+  // "10.30 malam"
+  { re: new RegExp(String.raw`(?<![\d.:/-])(?<h>\d{1,2})\.(?<m>\d{2})\s*(?<p>${PN})\b`) },
+  // "3 sore" (tapi bukan "tanggal 12 malam")
+  { re: new RegExp(String.raw`(?<![\d.:/-]|tanggal\s)(?<h>\d{1,2})\s*(?<p>${PN})\b`) },
+  // "pagi", "malam ini", "tengah malam"
+  { re: new RegExp(String.raw`\b(?<p>tengah malam|tengah hari|${PN})\b(?:\s+(?:ini|nanti))?`) },
+];
+
+/**
+ * @returns {null | {invalid: true} | {sisa: string, jam: number, menit: number}}
+ *   sisa = input tanpa bagian waktu, untuk diparse sebagai tanggal.
+ */
+function ekstrakWaktu(s) {
+  for (const { re, sete } of POLA_WAKTU) {
+    const m = re.exec(s);
+    if (!m) continue;
+    const g = m.groups;
+    let jam;
+    let menit = 0;
+    if (g.h === undefined) {
+      jam = PERIODE_JAM[g.p];
+    } else {
+      const h = parseInt(g.h, 10);
+      menit = g.m ? parseInt(g.m, 10) : 0;
+      if (h > 23 || menit > 59) return { invalid: true };
+      jam = jamDariPeriode(h, g.p);
+      if (sete) { jam = (jam + 23) % 24; menit = 30; }
+    }
+    const sisa = `${s.slice(0, m.index)} ${s.slice(m.index + m[0].length)}`.replace(/\s+/g, ' ').trim();
+    return { sisa, jam, menit };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,20 +268,20 @@ rule('relatif-tetap', (s, ctx) => {
   return null;
 });
 
-// -- 2. "<angka> <satuan> lagi|lalu" & "se<satuan> lagi|lalu" ---------------
+// -- 2. "<angka> <satuan> lagi|ke depan|lalu" & "se<satuan> ..." ----------------
 rule('n-satuan-relatif', (s, ctx) => {
-  let m = s.match(/^(\d+)\s*(hari|minggu|bulan|tahun)\s+(lagi|yang lalu|lalu)$/);
+  let m = s.match(/^(\d+)\s*(hari|minggu|bulan|tahun)\s+(lagi|ke depan|yang lalu|lalu)$/);
   let jumlah;
   if (m) {
     jumlah = parseInt(m[1], 10);
   } else {
-    m = s.match(/^se(hari|minggu|bulan|tahun)\s+(lagi|yang lalu|lalu)$/);
+    m = s.match(/^se(hari|minggu|bulan|tahun)\s+(lagi|ke depan|yang lalu|lalu)$/);
     if (!m) return null;
     jumlah = 1;
     m = [m[0], '1', m[1], m[2]];
   }
   const satuan = m[2];
-  const arah = m[3].startsWith('lagi') ? 1 : -1;
+  const arah = /^(lagi|ke)/.test(m[3]) ? 1 : -1;
   const n = jumlah * arah;
   switch (satuan) {
     case 'hari': return tambahHari(ctx.today, n);
@@ -225,7 +308,7 @@ rule('satuan-depan-lalu', (s, ctx) => {
 
 // -- 4. Nama hari: "senin", "senin depan", "senin lalu/kemarin", "senin ini" --
 rule('nama-hari', (s, ctx) => {
-  const m = s.match(/^(minggu|ahad|senin|selasa|rabu|kamis|jumat|jum'at|sabtu)(?:\s+(depan|lalu|kemarin|ini))?$/);
+  const m = s.match(/^(?:hari\s+)?(minggu|ahad|senin|selasa|rabu|kamis|jumat|jum'at|sabtu)(?:\s+(depan|lalu|kemarin|ini))?$/);
   if (!m) return null;
   const target = HARI_INDEX[m[1]];
   const mode = m[2] || 'bare';
@@ -240,6 +323,34 @@ rule('nama-hari', (s, ctx) => {
   let diff = (target - todayIdx + 7) % 7;
   if (mode === 'depan' && diff === 0) diff = 7;
   return tambahHari(ctx.today, diff);
+});
+
+// -- 4b. Hari di pekan tertentu: "senin minggu depan", "jumat minggu ini" (pekan mulai Senin)
+rule('hari-minggu-ke', (s, ctx) => {
+  const m = s.match(/^(?:hari\s+)?(minggu|ahad|senin|selasa|rabu|kamis|jumat|jum'at|sabtu)\s+minggu\s+(depan|ini|lalu|kemarin)$/);
+  if (!m) return null;
+  const k = m[2] === 'depan' ? 1 : (m[2] === 'ini' ? 0 : -1);
+  const seninIni = tambahHari(ctx.today, -((ctx.today.getDay() + 6) % 7));
+  return tambahHari(seninIni, k * 7 + (HARI_INDEX[m[1]] + 6) % 7);
+});
+
+// -- 4b'. Hari di pekan N minggu dari sekarang: "rabu 2 minggu lagi", "senin seminggu lalu"
+// Artinya hari itu di pekan (mulai Senin) tempat "hari ini + N minggu" jatuh.
+rule('hari-n-minggu', (s, ctx) => {
+  const m = s.match(/^(?:hari\s+)?(minggu|ahad|senin|selasa|rabu|kamis|jumat|jum'at|sabtu)\s+(?:(\d+)\s*|se)minggu\s+(lagi|ke depan|yang lalu|lalu)$/);
+  if (!m) return null;
+  const k = (m[2] ? parseInt(m[2], 10) : 1) * (/^(lagi|ke)/.test(m[3]) ? 1 : -1);
+  const seninIni = tambahHari(ctx.today, -((ctx.today.getDay() + 6) % 7));
+  return tambahHari(seninIni, k * 7 + (HARI_INDEX[m[1]] + 6) % 7);
+});
+
+// -- 4c. Hari tetap tiap tahun: "natal", "tahun baru", "kemerdekaan" (hari libur yang bergeser tidak didukung)
+const HARI_TETAP = { natal: [11, 25], 'tahun baru': [0, 1], kemerdekaan: [7, 17] };
+rule('hari-tetap', (s, ctx) => {
+  const m = s.match(/^(?:hari\s+)?(natal|tahun baru|kemerdekaan)$/);
+  if (!m) return null;
+  const [monthIndex, day] = HARI_TETAP[m[1]];
+  return tanggalTahunMendatang(day, monthIndex, ctx.today);
 });
 
 // -- 5. "tanggal N ..." / "tgl N ..." (sudah dinormalisasi jadi "tanggal") --
@@ -277,7 +388,7 @@ rule('tanggal-n', (s, ctx) => {
   const m2 = suffix.match(/^([a-z]+)\.?(?:\s+(\d{4}))?$/);
   if (m2 && m2[1] in BULAN) {
     const tahun = m2[2] ? parseInt(m2[2], 10) : today.getFullYear();
-    return buatTanggalClamped(tahun, BULAN[m2[1]], day);
+    return buatTanggalStrict(tahun, BULAN[m2[1]], day); // eksplisit: 31 april / 29 feb non-kabisat -> null
   }
   return null;
 });
@@ -362,25 +473,108 @@ rule('bulan-tahun', (s) => {
 });
 
 // ---------------------------------------------------------------------------
+// Fallback typo: "senn" -> "senin" (hanya salah/kurang/lebih/tertukar huruf sedikit)
+// ---------------------------------------------------------------------------
+
+const KOSAKATA = [
+  ...Object.keys(BULAN), ...Object.keys(HARI_INDEX),
+  'besok', 'lusa', 'kemarin', 'sekarang', 'hari', 'ini', 'depan', 'minggu', 'bulan', 'tahun', 'lagi', 'lalu',
+  'nanti', 'tanggal', 'awal', 'akhir', 'yang', 'jam', 'pukul', 'setengah', 'tengah', 'subuh', 'pagi', 'siang',
+  'sore', 'petang', 'malam', 'natal', 'kemerdekaan', 'baru',
+].filter((w) => /^[a-z]+$/.test(w));
+const KATA_VALID = new Set([...KOSAKATA, ...Object.keys(SINGKATAN), 'ke', 'pada', 'sekitar']);
+
+/** Damerau-Levenshtein (dua huruf bertukar = 1 edit). */
+function jarakEdit(a, b) {
+  const d = [];
+  for (let i = 0; i <= a.length; i++) d[i] = [i];
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+      }
+    }
+  }
+  return d[a.length][b.length];
+}
+
+/**
+ * Ganti kata asing dengan kata kamus yang paling mirip. Kata <4 huruf tidak disentuh (terlalu ambigu);
+ * toleransi 1 edit (2 edit untuk kata >=8 huruf). Kalau ada dua kandidat sama dekat, kata dibiarkan.
+ * @returns {{ teks: string, koreksi: {from: string, to: string}[] }}
+ */
+function perbaikiTypo(s) {
+  const koreksi = [];
+  const teks = s.split(' ').map((kata) => {
+    if (kata.length < 4 || !/^[a-z]+$/.test(kata) || KATA_VALID.has(kata)) return kata;
+    const maks = kata.length >= 8 ? 2 : 1;
+    let terbaik = null;
+    let jarakMin = maks + 1;
+    let seri = false;
+    for (const kandidat of KOSAKATA) {
+      if (Math.abs(kandidat.length - kata.length) > maks) continue;
+      const j = jarakEdit(kata, kandidat);
+      if (j < jarakMin) { jarakMin = j; terbaik = kandidat; seri = false; }
+      else if (j === jarakMin && kandidat !== terbaik) seri = true;
+    }
+    if (!terbaik || seri) return kata;
+    koreksi.push({ from: kata, to: terbaik });
+    return terbaik;
+  }).join(' ');
+  return { teks, koreksi };
+}
+
+// ---------------------------------------------------------------------------
 // API publik
 // ---------------------------------------------------------------------------
 
-/**
- * @param {string} input
- * @param {{ referenceDate?: Date }} [opts]
- * @returns {{ date: Date|null, rule: string|null }}
- */
-function parseTanggalIDDetail(input, opts) {
-  if (typeof input !== 'string' || !input.trim()) return { date: null, rule: null };
-  const s = normalize(input);
-  const ctx = { today: getToday(opts) };
-  for (const { name, fn } of RULES) {
-    const hasil = fn(s, ctx);
-    if (hasil instanceof Date && !isNaN(hasil)) {
-      return { date: hasil, rule: name };
+/** Parse teks yang sudah dinormalisasi. Balikin { date, rule, hasTime }; date null kalau tidak cocok. */
+function parseNormalized(mentah, ctx) {
+  const gagal = { date: null, rule: null, hasTime: false };
+  const waktu = ekstrakWaktu(mentah);
+  if (waktu && waktu.invalid) return gagal;
+  const s = buangHariAbsolut(waktu ? waktu.sisa : mentah);
+
+  let date = null;
+  let namaRule = null;
+  if (waktu && s === '') {
+    date = ctx.today; // cuma waktu ("jam 10", "malam ini") -> hari ini
+    namaRule = 'waktu-saja';
+  } else {
+    for (const { name, fn } of RULES) {
+      const hasil = fn(s, ctx);
+      if (hasil instanceof Date && !isNaN(hasil)) { date = hasil; namaRule = name; break; }
     }
   }
-  return { date: null, rule: null };
+  if (!date) return gagal;
+  if (!waktu) return { date, rule: namaRule, hasTime: false };
+  const dt = new Date(date);
+  dt.setHours(waktu.jam, waktu.menit, 0, 0);
+  return { date: dt, rule: namaRule, hasTime: true };
+}
+
+/**
+ * @param {string} input
+ * @param {{ referenceDate?: Date, fuzzy?: boolean }} [opts]  fuzzy (default true): coba perbaiki typo kalau parse gagal
+ * @returns {{ date: Date|null, rule: string|null, hasTime: boolean, assumed: boolean, corrections: {from: string, to: string}[] }}
+ *   assumed = true berarti hasilnya tebakan setelah typo diperbaiki (lihat corrections).
+ */
+function parseTanggalIDDetail(input, opts) {
+  const gagal = { date: null, rule: null, hasTime: false, assumed: false, corrections: [] };
+  if (typeof input !== 'string' || !input.trim()) return gagal;
+  const ctx = { today: getToday(opts) };
+  const mentah = normalize(input);
+
+  const hasil = parseNormalized(mentah, ctx);
+  if (hasil.date) return { ...hasil, assumed: false, corrections: [] };
+
+  if (opts && opts.fuzzy === false) return gagal;
+  const { teks, koreksi } = perbaikiTypo(mentah);
+  if (!koreksi.length) return gagal;
+  const tebakan = parseNormalized(teks, ctx);
+  return tebakan.date ? { ...tebakan, assumed: true, corrections: koreksi } : gagal;
 }
 
 /**
@@ -394,18 +588,23 @@ function parseTanggalID(input, opts) {
 
 /**
  * @param {Date} date
- * @param {{ withDay?: boolean }} [opts]
+ * @param {{ withDay?: boolean, withTime?: boolean }} [opts]
  * @returns {string}
  */
 function formatTanggalID(date, opts = {}) {
   if (!(date instanceof Date) || isNaN(date.getTime())) return '';
-  const { withDay = false } = opts;
-  const inti = `${date.getDate()} ${NAMA_BULAN_OUTPUT[date.getMonth()]} ${date.getFullYear()}`;
-  return withDay ? `${NAMA_HARI_OUTPUT[date.getDay()]}, ${inti}` : inti;
+  const { withDay = false, withTime = false } = opts;
+  let hasil = `${date.getDate()} ${NAMA_BULAN_OUTPUT[date.getMonth()]} ${date.getFullYear()}`;
+  if (withDay) hasil = `${NAMA_HARI_OUTPUT[date.getDay()]}, ${hasil}`;
+  if (withTime) {
+    const p = (n) => String(n).padStart(2, '0');
+    hasil += ` pukul ${p(date.getHours())}.${p(date.getMinutes())}`;
+  }
+  return hasil;
 }
 
-module.exports = {
-  parseTanggalID,
-  parseTanggalIDDetail,
-  formatTanggalID,
-};
+const api = { parseTanggalID, parseTanggalIDDetail, formatTanggalID };
+
+// CommonJS (Node) atau <script> biasa di browser (demo di docs/) -> window.IdDateParser
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+else window.IdDateParser = api;
